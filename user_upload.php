@@ -13,7 +13,7 @@
       exit(helpInstructions());
     }
 
-    //Handle directive arguments
+    //Handle Bash directive arguments
     switch ($argv[1])
     {
       case "--file":
@@ -27,12 +27,30 @@
         }
 
       case "--create-table":
+        //check if a db connection file exists - if it doesnt
+        if (checkFileExists("dbconnect.xml") == false)
+        {
+          $db = pg_connect( "$host $port $dbname $credentials" );
+          if (!$db) {
+             echo "Error : Unable to open database\n";
+           } else {
+              echo "Opened database successfully\n";
+           }
+        }
+        break;
 
+      //Specify the Postgre Directives
       case "-u":
-
       case "-p":
-
       case "-h":
+      case "-c":
+      case "-d":
+        if (empty($argv[2])) {
+          readXMLFile($argv[1]);
+        } else {
+          modifyXMLFile($argv[1], $argv[2]);
+        }
+        break;
 
       case "--help":
         exit(helpInstructions());
@@ -51,6 +69,87 @@
         } else {
           return true;
         }
+    }
+
+    //function used to the read an attribute from the XML file which stores the connection elements for Postgre
+    function readXMLFile($argu1)
+    {
+      if (checkFileExists("dbconnect.xml") == false)
+      {
+        createXMLFile();
+      }
+      $xml = simplexml_load_file("dbconnect.xml");
+      switch ($argu1)
+      {
+        case "-u":
+          echo "Postgre Username: ".$xml->username."\n";
+          break;
+        case "-p":
+          echo "Postgre Password: ".$xml->password."\n";
+          break;
+        case "-h":
+          echo "Postgre Host: ".$xml->host."\n";
+          break;
+        case "-c":
+          echo "Postgre Port No: ".$xml->port."\n";
+          break;
+        case "-d":
+          echo "Postgre Database: ".$xml->database."\n";
+          break;
+        }
+    }
+
+    //function used to modify a given key value in the XML file for the Postgre connection
+    function modifyXMLFile($argu1, $argu2)
+    {
+      if (checkFileExists("dbconnect.xml") == false)
+      {
+        createXMLFile();
+      }
+      $string = "";
+      $xml = simplexml_load_file("dbconnect.xml");
+      switch ($argu1)
+      {
+        case "-u":
+          $xml->username = $argu2;
+          $xml->asXML("dbconnect.xml");
+          $string = "Postgre Username Updated: ".$xml->username;
+          break;
+        case "-p":
+          $xml->password = $argu2;
+          $xml->asXML("dbconnect.xml");
+          $string = "Postgre Password: ".$xml->password;
+          break;
+        case "-h":
+          $xml->host = $argu2;
+          $xml->asXML("dbconnect.xml");
+          $string = "Postgre Host: ".$xml->host;
+          break;
+        case "-c":
+          $xml->port = $argu2;
+          $xml->asXML("dbconnect.xml");
+          $string = "Postgre Port No: ".$xml->port;
+          break;
+        case "-d":
+          $sml->database = $argu2;
+          $xml->asXML("dbconnect.xml");
+          $string = "Postgre Database: ".$xml->database;
+          break;
+      }
+      echo $string."\n";
+    }
+
+    //function used to create an empty XML file of the connection elements for Postgre (includes default values)
+    function createXMLFile()
+    {
+      $xmlstr = "<?xml version='1.0' encoding='UTF-8'?><dbconnect></dbconnect>";
+      $xmlconn = new SimpleXMLElement($xmlstr);
+      $xmlconn->addChild('username','root');
+      $xmlconn->addChild('password','root');
+      $xmlconn->addChild('host','127.0.0.1');
+      $xmlconn->addChild('port','5432');
+      $xmlconn->addChild('database','tmpCatalyst');
+      $xmlconn->asXML("dbconnect.xml");
     }
 
     //function used to read data from a CSV file into an array.  The "checkFileExists" function should always be run prior to this, to check the file exists.
@@ -83,6 +182,8 @@
       echo "-u = specify the PostgreSQL username\n";
       echo "-p = specify the PostgreSQL password\n";
       echo "-h = specify the PostgreSQL host\n";
+      echo "-c = specify the PostgreSQL port\n";
+      echo "-d = specify the PostgreSQL database\n";
       echo "--help = Display instructions for directive usage\n\n";
       echo "     |>>** USAGE EXAMPLES **<<|     \n";
       echo "i) php user_upload.php --file users.csv = the csv file 'users' will be parsed and written to the Database.\n";
