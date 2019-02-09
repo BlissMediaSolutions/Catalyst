@@ -39,6 +39,24 @@
         }
         break;
 
+      case "--check-db":
+        $host = readXMLFile("-h");
+        $db = readXMLFile("-d");
+        $user = readXMLFile("u");
+        $pass = readXMLFile("-p");
+        //$pgsql_conn = pg_connect("user=".$user." password=".$pass." dbname=".$db." host=".$host);
+        $pgsql_conn = @pg_connect("port=5432 dbname=dummy user=root password=root");
+        if ($pgsql_conn) {
+          echo "Successfully connected to database: " . pg_dbname($pgsql_conn) .
+          "\n";
+        } else {
+          //echo "Error: ".pg_last_error($pgsql_conn);
+          //echo "Error: ".pg_result_error($pgsql_conn);
+          echo "Error connecting to database!!\n";
+          exit;
+        }
+        break;
+
       //Specify the Postgre Directives
       case "-u":
       case "-p":
@@ -136,6 +154,7 @@
           $string = "Postgre Database: ".$xml->database;
           break;
       }
+      $xml->close();
       echo $string."\n";
     }
 
@@ -148,7 +167,7 @@
       $xmlconn->addChild('password','root');
       $xmlconn->addChild('host','127.0.0.1');
       $xmlconn->addChild('port','5432');
-      $xmlconn->addChild('database','tmpCatalyst');
+      $xmlconn->addChild('database','postgres');
       $xmlconn->asXML("dbconnect.xml");
     }
 
