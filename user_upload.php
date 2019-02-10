@@ -4,6 +4,14 @@
   //    futher filtering on name/surname to remove non alpha characters.
   //    Database handling
 
+  //Check if the XML file for settings exist, if not create it, then load the contents into a new object;
+  if (checkFileExists("dbconnect.xml") == false)
+  {
+    createXMLFile();
+  }
+  $xml = new stdClass();
+  $xml = simplexml_load_file("dbconnect.xml");
+
   //Handle the directives from the Bash input
   foreach ($argv as $value)
   {
@@ -23,38 +31,39 @@
           exit ("Unknown command $argv[1].  File name missing or File Not Found\n");
         } else {
           readCSVFile($argv[2]);
-          break;
-        }
-
-      case "--create-table":
-        //check if a db connection file exists - if it doesnt
-        if (checkFileExists("dbconnect.xml") == false)
-        {
-          $db = pg_connect( "$host $port $dbname $credentials" );
-          if (!$db) {
-             echo "Error : Unable to open database\n";
-           } else {
-              echo "Opened database successfully\n";
-           }
         }
         break;
 
-      case "--check-db":
-        $host = readXMLFile("-h");
-        $db = readXMLFile("-d");
-        $user = readXMLFile("u");
-        $pass = readXMLFile("-p");
-        //$pgsql_conn = pg_connect("user=".$user." password=".$pass." dbname=".$db." host=".$host);
-        $pgsql_conn = @pg_connect("port=5432 dbname=dummy user=root password=root");
-        if ($pgsql_conn) {
-          echo "Successfully connected to database: " . pg_dbname($pgsql_conn) .
-          "\n";
-        } else {
-          //echo "Error: ".pg_last_error($pgsql_conn);
-          //echo "Error: ".pg_result_error($pgsql_conn);
-          echo "Error connecting to database!!\n";
-          exit;
+      case "--create_table":
+        $query = "CREATE TABLE IF NOT EXISTS users (
+                    email VARCHAR(50) PRIMARY KEY,
+                    name VARCHAR(25) NOT NULL,
+                    surname VARCHAR(25) NOT NULL)";
+        set_error_handler("exception_db_handler");
+        try {
+          $pg = @pg_connect("host=".$xml->host." port=".$xml->port." dbname=".$xml->database." user=".$xml->username." password=".$xml->password);
+          $createtable = pg_query($pg, $query);
+          if ($createtable) {
+            echo "Table Create Successfully\n";
+          }
+        } catch (Exception $e) {
+          echo "ERROR: ".$e->getMessage()." \n";
         }
+        pg_close($pg);
+        break;
+
+      case "--check-db":
+        set_error_handler("exception_db_handler");
+        try {
+          $pgsql = @pg_connect("host=".$xml->host." port=".$xml->port." dbname=".$xml->database." user=".$xml->username." password=".$xml->password);
+
+          if ($pgsql) {
+            echo "Successfully connected to database: " . pg_dbname($pgsql)."\n";
+          }
+        } catch (Exception $e) {
+          echo "ERROR: ".$e->getMessage()." \n";
+        }
+        pg_close($pgsql);
         break;
 
       //Specify the Postgre Directives
@@ -64,14 +73,15 @@
       case "-c":
       case "-d":
         if (empty($argv[2])) {
-          readXMLFile($argv[1]);
+          echo readXMLFile($xml, $argv[1])."\n";
         } else {
-          modifyXMLFile($argv[1], $argv[2]);
+          echo modifyXMLFile($xml, $argv[1], $argv[2])."\n";
         }
         break;
 
       case "--help":
-        exit(helpInstructions());
+        echo helpInstructions()."\n";
+        break;
 
       default:
         exit ("Unknown command $argv[1].  Try the --help directive for assistance\n");
@@ -90,40 +100,32 @@
     }
 
     //function used to the read an attribute from the XML file which stores the connection elements for Postgre
-    function readXMLFile($argu1)
+    function readXMLFile($xml, $argu1)
     {
-      if (checkFileExists("dbconnect.xml") == false)
-      {
-        createXMLFile();
-      }
-      $xml = simplexml_load_file("dbconnect.xml");
       switch ($argu1)
       {
         case "-u":
-          echo "Postgre Username: ".$xml->username."\n";
+          $xmlString = "Postgre Username: ".$xml->username;
           break;
         case "-p":
-          echo "Postgre Password: ".$xml->password."\n";
+          $xmlString = "Postgre Password: ".$xml->password;
           break;
         case "-h":
-          echo "Postgre Host: ".$xml->host."\n";
+          $xmlString = "Postgre Host: ".$xml->host;
           break;
         case "-c":
-          echo "Postgre Port No: ".$xml->port."\n";
+          $xmlString = "Postgre Port No: ".$xml->port;
           break;
         case "-d":
-          echo "Postgre Database: ".$xml->database."\n";
+          $xmlString = "Postgre Database: ".$xml->database;
           break;
         }
+        return $xmlString;
     }
 
     //function used to modify a given key value in the XML file for the Postgre connection
-    function modifyXMLFile($argu1, $argu2)
+    function modifyXMLFile($xml, $argu1, $argu2)
     {
-      if (checkFileExists("dbconnect.xml") == false)
-      {
-        createXMLFile();
-      }
       $string = "";
       $xml = simplexml_load_file("dbconnect.xml");
       switch ($argu1)
@@ -154,8 +156,8 @@
           $string = "Postgre Database: ".$xml->database;
           break;
       }
-      $xml->close();
-      echo $string."\n";
+      //$xml->close();
+      return $string;
     }
 
     //function used to create an empty XML file of the connection elements for Postgre (includes default values)
@@ -163,7 +165,7 @@
     {
       $xmlstr = "<?xml version='1.0' encoding='UTF-8'?><dbconnect></dbconnect>";
       $xmlconn = new SimpleXMLElement($xmlstr);
-      $xmlconn->addChild('username','root');
+      $xmlconn->addChild('username','postgres');
       $xmlconn->addChild('password','root');
       $xmlconn->addChild('host','127.0.0.1');
       $xmlconn->addChild('port','5432');
@@ -195,19 +197,27 @@
     function helpInstructions()
     {
       echo "\n     |>>** USER_UPLOAD DIRECTIVES **<<|     \n";
-      echo "--file [csv filename] = this is the name of the CSV file to be parsed\n";
+      echo "--file [csv filename] = this is the name of the CSV file to be parsed into the database\n";
       echo "--file [csv filename] --dry_run = Peforms a dry run on the csv file, but doesn't actually write any data to the Db\n";
+      echo "--check-db = used to test the current Postgres database connection parameters.\n";
       echo "--create_table = this will cause the PostgreSQL users table to be built\n";
-      echo "-u = specify the PostgreSQL username\n";
-      echo "-p = specify the PostgreSQL password\n";
-      echo "-h = specify the PostgreSQL host\n";
+      echo "-u = Display the PostgreSQL username\n";
+      echo "-u [username] = Sets the PostgreSQL username\n";
+      echo "-p = Display the PostgreSQL password\n";
+      echo "-p [password] = Sets the PostgreSQL password\n";
+      echo "-h = Display the PostgreSQL host\n";
+      echo "-h [host address] = Sets the PostgreSQL host\n";
       echo "-c = specify the PostgreSQL port\n";
-      echo "-d = specify the PostgreSQL database\n";
+      echo "-c [port] = Sets the PostgreSQL port number\n";
+      echo "-d = Display the PostgreSQL database\n";
+      echo "-d [database] = Sets the PostgreSQL database\n";
       echo "--help = Display instructions for directive usage\n\n";
-      echo "     |>>** USAGE EXAMPLES **<<|     \n";
-      echo "i) php user_upload.php --file users.csv = the csv file 'users' will be parsed and written to the Database.\n";
-      echo "ii) php user_upload.php --file users.csv --dry_run = the csv file 'users' will be parsed, but no data will be written to database.\n\n";
-      //add more usage examples
+    }
+
+    //Custom Exception Error handler for pg_connect, as it wont throw an exception
+    function exception_db_handler($errno, $errstr, $errfile, $errline )
+    {
+      throw new ErrorException($errstr, $errno, 0, $errfile, $errline);
     }
 
   ?>
