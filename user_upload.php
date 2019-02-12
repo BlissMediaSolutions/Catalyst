@@ -1,6 +1,7 @@
 <?php
   //TODO: futher filtering on name/surname to remove non alpha characters.
   //      Database handling
+  //      Add a check that Primary Key (email) doesn't already exist in database
 
   //Check if the XML file for settings exist, if not create it, then load the contents into a new object;
   if (checkFileExists("dbconnect.xml") == false)
@@ -21,45 +22,60 @@
   switch ($argv[1])
   {
     case "--file":
-      //check to see if a filename was added as a directive, and that the file exists
       if ((empty($argv[2])) OR (checkFileExists($argv[2]) == false))
       {
-        fwrite(STDOUT, "Unknown command $argv[1].  File name missing or File Not Found\n");
+        fwrite(STDOUT, "Unknown command ". $argv[1]." File name missing or File Not Found\n");
+      } elseif (empty($argv[3])) {
+        $data = readCSVFile($argv[2]);
+        set_error_handler("exception_db_handler");
+        try {
+          $db = new Dbase();
+          $pgsql = $db->dbConnect($xml->host, $xml->port, $xml->database, $xml->username, $xml->password);
+          $data = readCSVFile($argv[2]);
+          if ($db->insertData($pgsql, $data[0]))
+          {
+            fwrite(STDOUT, "Successfully added data to the Database\n");
+            pg_close($pgsql);
+          }
+          createErrorIssue($data[1], $data[2]);                               //create the Error & Issues CSV files.
+        } catch (Exception $e) {
+          fwrite(STDOUT,"ERROR: ".$e->getMessage()." \n");
+        }
       } else {
-        readCSVFile($argv[2]);
+        $data = readCSVFile($argv[2]);
+        createErrorIssue($data[1], $data[2]);
+        fwrite(STDOUT, "Successfully performed Dry Run on CSV data\n");
       }
       break;
 
     case "--create_table":
-      $query = "CREATE TABLE IF NOT EXISTS users (
-                  email VARCHAR(50) PRIMARY KEY,
-                  name VARCHAR(25) NOT NULL,
-                  surname VARCHAR(25) NOT NULL)";
       set_error_handler("exception_db_handler");
       try {
-        $pg = @pg_connect("host=".$xml->host." port=".$xml->port." dbname=".$xml->database." user=".$xml->username." password=".$xml->password);
-        $createtable = pg_query($pg, $query);
-        if ($createtable) {
+        $db = new Dbase();
+        $pgsql = $db->dbConnect($xml->host, $xml->port, $xml->database, $xml->username, $xml->password);
+        if ($db->createTable($pgsql))
+        {
           fwrite(STDOUT, "Table Create Successfully\n");
+          pg_close($pgsql);
         }
       } catch (Exception $e) {
           fwrite(STDOUT,"ERROR: ".$e->getMessage()." \n");
       }
-      pg_close($pg);
       break;
 
-    case "--check-db":
+    case "--test_db":
       set_error_handler("exception_db_handler");
       try {
-        $pgsql = @pg_connect("host=".$xml->host." port=".$xml->port." dbname=".$xml->database." user=".$xml->username." password=".$xml->password);
-
-        if ($pgsql) {
-          fwrite(STDOUT, "Successfully connected to database: " . pg_dbname($pgsql)."\n");
+        $db = new Dbase();
+        $pgsql = $db->dbConnect($xml->host, $xml->port, $xml->database, $xml->username, $xml->password);
+        if ($pgsql)
+        {
+          fwrite(STDOUT, "Successfully tested connection to database: " . pg_dbname($pgsql)."\n");
+          pg_close($pgsql);
         }
       } catch (Exception $e) {
-        fwrite(STDOUT,"ERROR: ".$e->getMessage()." \n");
+         fwrite(STDOUT,"ERROR: ".$e->getMessage()." \n");
       }
-      pg_close($pgsql);
       break;
 
       //Specify the Postgre Directives
@@ -173,26 +189,111 @@
     {
       $rows = array_map('str_getcsv', file($fileName));
       $head = array_shift($rows);
-      $trim_head = array_map('trim',$head);                                             //trim white space from header names
+      $trim_head = array_map('trim', $head);                                             //trim white space from header names
 
-      $csvfile = array();
-      $errlist = array();
+      $csvfile = array();                                                               //array of data to be written to database
+      $errlist = array();                                                               //array of data which couldn't be written to database due to invalid email or already existing email
+      $issuelist = array();                                                             //array of data which may need to be corrected in db, due to non-alpha charcters in name/surname
       $x = 0;
       foreach ($rows as $row) {
         $csvfile[] = array_combine($trim_head, $row);
         $csvfile[$x]['name'] = ucfirst(strtolower(trim($csvfile[$x]['name'])));         //convert name to lowercase with first char Upper + trim whitespace
         $csvfile[$x]['surname'] = ucfirst(strtolower(trim($csvfile[$x]['surname'])));   //convert surname to lowercase with first char Upper + trim whitespace
         $csvfile[$x]['email'] = strtolower(trim($csvfile[$x]['email']));                //convert email to lowercase + trim whitespace
+        $z = $x;
 
         if (!filter_var($csvfile[$x]['email'], FILTER_VALIDATE_EMAIL))
         {
-          array_push($errlist, $csvfile[$x]);                                           //add invalid email record to ErrList
-          array_splice($csvfile, $x, 1);                                                //remove invalid email record & reindex array
+          array_push($errlist, $csvfile[$x]);                                           //add invalid email record to ErrList Array
+          array_splice($csvfile[$x], $x, 1);                                                //remove invalid email record & reindex CSVFile array
+        }
+        if (!ctype_alpha($csvfile[$x]['name']) || (!ctype_alpha($csvfile[$z]['surname'])))
+        {
+          array_push($issuelist, $csvfile[$x]);                                          //name or surname contains non-alpha characters, so add it to the Issues Array
         }
         $x++;
       }
-      print_r($errlist);    //testing only
-      print_r($csvfile);    //testing only
+      return array($csvfile, $errlist, $issuelist);
+      //print_r($errlist);    //testing only
+      //print_r($csvfile);    //testing only
+    }
+
+    //function which creates CSV file for the Error_log and/or Issue_list
+    function createCSV($name, $arr)
+    {
+      $csv = fopen($name.".csv", "w");
+      foreach ($arr as $row)
+      {
+        fputcsv($csv, $row);
+      }
+      fclose($csv);
+    }
+
+    function createErrorIssue($errlog, $issuelog)
+    {
+      if (!empty($errlog))
+      {
+        createCSV("Error_log", $errlog);
+      }
+      if (!empty($issuelog))
+      {
+        createCSV("Issue_log", $issuelog);
+      }
+    }
+
+    class Dbase
+    {
+      //function which creates the initial connection to the Postgre Database
+      function dbConnect($host, $port, $dbname, $user, $password)
+      {
+        $pgsql = @pg_connect("host=".$host." port=".$port." dbname=".$dbname." user=".$user." password=".$password);
+        if ($pgsql)
+        {
+          return $pgsql;
+        }
+      }
+
+      //function which checks if the 'users' table exists
+      function checkTableExists($pg)
+      {
+        $query = "SELECT 1 from 'users' LIMIT 1";
+        $checktable = pg_query($pg, $query);
+        if ($checktable !== FALSE)
+        {
+          return true;
+        } else {
+          return false;
+        }
+      }
+
+      //function to create the 'users' table.
+      function createTable($pg)
+      {
+        $query = "CREATE TABLE IF NOT EXISTS users (
+                    email VARCHAR(50) PRIMARY KEY,
+                    name VARCHAR(25) NOT NULL,
+                    surname VARCHAR(25) NOT NULL)";
+        $createtable = pg_query($pg, $query);
+        if ($createtable)
+        {
+          return $createtable;
+        }
+      }
+
+      //function which inserts data to the 'users' table
+      function insertData($pg, $csvfile)
+      {
+        $x = 0;
+        foreach ($csvfile as $data)
+        {
+          $email = pg_escape_string($csvfile[$x]['email']);
+          $name = pg_escape_string($csvfile[$x]['name']);
+          $surname = pg_escape_string($csvfile[$x]['surname']);
+          $query = "INSERT INTO users (email, name, surname) VALUES ('".$email."', '".$name."', '".$surname."')";
+          $result = pg_query($pg, $query);
+          $x++;
+        }
+      }
     }
 
     //Simple function to display help instructions
@@ -201,18 +302,18 @@
       $text = "\n     |>>** USER_UPLOAD DIRECTIVES **<<|     \n".
         "--file [csv filename] = this is the name of the CSV file to be parsed into the database\n".
         "--file [csv filename] --dry_run = Peforms a dry run on the csv file, but doesn't actually write any data to the Db\n".
-        "--check-db = used to test the current Postgres database connection parameters.\n".
+        "--test_db = used to test the current Postgres database connection parameters.\n".
         "--create_table = this will cause the PostgreSQL users table to be built\n".
         "--help = Display theseinstructions for directive usage\n".
-        "-u = Display the PostgreSQL username\n".
+        "-u = Display the current PostgreSQL username\n".
         "-u [username] = Sets the PostgreSQL username\n".
-        "-p = Display the PostgreSQL password\n".
+        "-p = Display the current PostgreSQL password\n".
         "-p [password] = Sets the PostgreSQL password\n".
-        "-h = Display the PostgreSQL host\n".
+        "-h = Display the current PostgreSQL host\n".
         "-h [host address] = Sets the PostgreSQL host\n".
-        "-c = specify the PostgreSQL port\n".
+        "-c = Display the current PostgreSQL port\n".
         "-c [port] = Sets the PostgreSQL port number\n".
-        "-d = Display the PostgreSQL database\n".
+        "-d = Display the current PostgreSQL database\n".
         "-d [database] = Sets the PostgreSQL database\n";
       fwrite(STDOUT, $text);
     }
