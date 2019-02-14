@@ -28,17 +28,21 @@
         try {
           $db = new Dbase();
           $pgsql = $db->dbConnect($xml->host, $xml->port, $xml->database, $xml->username, $xml->password);
-          //if (!empty($db->createTable($pgsql)))
-          //{
-          //  fwrite(STDOUT, "Users Table Created Successfully\n");
-            //pg_close($pgsql);
-          //}
+          if ($db->checkUserTableExists($pgsql) == false)
+          {
+            if ($db->createTable($pgsql))
+            {
+              fwrite(STDOUT, "Creating Users Table in Database...\n");
+            }
+          } else {
+            fwrite(STDOUT, "Users Table already Exists\n");
+          }
           $data = readCSVFile($argv[2]);                                            //Read the CSV file
           if ($db->insertData($pgsql, $data[0]))
           {
             pg_close($pgsql);
             createErrorIssue($data[1], $data[2]);                                   //create the Error & Issues CSV files.
-            fwrite(STDOUT, "Successfully added records to the database\n");
+            fwrite(STDOUT, "Successfully added records to the database.\n");
             fwrite(STDOUT, "Check the files Error_log.csv and Issues_log.csv for any problems with the data.\n");
           }
         } catch (Exception $e) {
@@ -83,7 +87,9 @@
           pg_close($pgsql);
         }
       } catch (Exception $e) {
-         fwrite(STDOUT,"Error Communicating with Database: ".$e->getMessage()." \n");
+         //fwrite(STDOUT,"Error Communicating with Database: ".$e->getMessage()." \n");               //If you can't find a logical reason for db connection failure, then un-comment this line.
+         fwrite(STDOUT,"Error Communicating with Database.  Please check all database parameters.\n");
+         fwrite(STDOUT,"* Note: The database name, user name and password are all Case Sensitive. *\n");
       }
       break;
 
@@ -172,7 +178,7 @@
           $string = "Postgre Port No Updated: ".$xml->port;
           break;
         case "-d":
-          $sml->database = $argu2;
+          $xml->database = $argu2;
           $xml->asXML("dbconnect.xml");
           $string = "Postgre Database Updated: ".$xml->database;
           break;
@@ -283,8 +289,8 @@
         "--file [csv filename] = this is the name of the CSV file to be parsed into the database\n".
         "--file [csv filename] --dry_run = Peforms a dry run on the csv file, but doesn't actually write any data to the Db\n".
         "--test_db = used to test the current Postgres database connection parameters.\n".
-        "--create_table = this will cause the PostgreSQL users table to be built\n".
-        "--help = Display theseinstructions for directive usage\n".
+        "--create_table = this will create the PostgreSQL Users table\n".
+        "--help = Display these instructions for directive usage\n".
         "-u = Display the current PostgreSQL username\n".
         "-u [username] = Sets the PostgreSQL username\n".
         "-p = Display the current PostgreSQL password\n".
@@ -330,7 +336,7 @@
         }
       }
 
-      //function to check the Users Table exists.  If it does return 'true' otherwise return 'false'
+      //function to check the Users Table exists.  It returns 'true' if the table exists, otherwise 'false'
       function checkUserTableExists($pg)
       {
         $query = "SELECT 1 FROM users LIMIT 1";
