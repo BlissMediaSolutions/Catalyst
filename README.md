@@ -29,3 +29,7 @@
 * All CSV files will be located in the same folder as the PHP Script (checks exist as to if the CSV file exists, but it does not check if a folder structure exists)
 
 #### Instructions:
+This script is designed to be run from the Command Line\Bash shell - to run it simply;   
+`php user_upload.php {directive}`   
+Full directive instructions are provided within the script by simply running:   
+`php uper_upload.php --help`
